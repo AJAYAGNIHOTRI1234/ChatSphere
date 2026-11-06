@@ -11,6 +11,7 @@ export const SocketProvider = ({ children }) => {
     const [socket, setSocket] = useState(null);
     const [isConnected, setIsConnected] = useState(false);
     const [onlineUsers, setOnlineUsers] = useState([]);
+    const [lastSeenMap, setLastSeenMap] = useState({});
     const socketRef = useRef(null);
 
     useEffect(() => {
@@ -48,8 +49,14 @@ export const SocketProvider = ({ children }) => {
             });
 
             // When a user disconnects
-            newSocket.on("user_offline", ({ userId }) => {
+            newSocket.on("user_offline", ({ userId, lastSeen }) => {
                 setOnlineUsers((prev) => prev.filter((id) => id !== userId));
+                if (userId && lastSeen) {
+                    setLastSeenMap((prev) => ({
+                        ...prev,
+                        [String(userId)]: lastSeen
+                    }));
+                }
             });
 
             return () => {
@@ -66,14 +73,14 @@ export const SocketProvider = ({ children }) => {
                 setSocket(null);
                 setIsConnected(false);
                 setOnlineUsers([]);
+                setLastSeenMap({});
             }
         }
     }, [token, user?._id || user?.id]);
 
     return (
-        <SocketContext.Provider value={{ socket, isConnected, onlineUsers }}>
+        <SocketContext.Provider value={{ socket, isConnected, onlineUsers, lastSeenMap }}>
             {children}
         </SocketContext.Provider>
     );
 };
-
