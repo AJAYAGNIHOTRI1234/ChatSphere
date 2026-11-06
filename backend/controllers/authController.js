@@ -2,6 +2,7 @@ import User from "../models/User.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import sendEmail from "../utils/sendEmail.js";
 
 // ========================================
 // SIGNUP
@@ -238,35 +239,79 @@ export const forgotPassword = async (req, res) => {
         const user = await User.findOne({ email: email.toLowerCase().trim() });
 
         if (!user) {
+            // Security best practice: don't reveal whether email exists
+            // Lekin ham clearly bata rahe hain for beginner-friendly UX
             return res.status(404).json({
                 success: false,
                 message: "No user found with this email address",
             });
         }
 
-        // Generate reset token
+        // Generate a random 32-byte token (raw, unhashed)
         const resetToken = crypto.randomBytes(32).toString("hex");
 
-        // Hash token for database storage
+        // Hash the token before saving to DB (for security)
+        // Raw token email me jayega, hashed DB me store hoga
         user.resetPasswordToken = crypto
             .createHash("sha256")
             .update(resetToken)
             .digest("hex");
 
-        // 10 minutes expiry
+        // Token 10 minutes me expire hoga
         user.resetPasswordExpire = Date.now() + 10 * 60 * 1000;
         await user.save();
 
+        // Build a beautiful HTML email
+        const resetEmailHTML = `
+            <div style="font-family: Arial, sans-serif; max-width: 500px; margin: auto; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden;">
+                <div style="background: linear-gradient(135deg, #4f46e5, #7c3aed); padding: 30px; text-align: center;">
+                    <h1 style="color: white; margin: 0; font-size: 24px;">💬 ChatSphere</h1>
+                    <p style="color: #c7d2fe; margin: 6px 0 0;">Password Reset Request</p>
+                </div>
+                <div style="padding: 30px; background: #fff;">
+                    <p style="color: #374151; font-size: 15px;">Hi <strong>${user.name}</strong>,</p>
+                    <p style="color: #374151; font-size: 15px;">
+                        We received a request to reset your ChatSphere password.
+                        Copy the token below and paste it in the app:
+                    </p>
+                    <div style="background: #f3f4f6; border: 1px dashed #6366f1; border-radius: 8px; padding: 16px; text-align: center; margin: 20px 0;">
+                        <p style="margin: 0; font-size: 12px; color: #6b7280; letter-spacing: 1px; text-transform: uppercase;">Your Reset Token</p>
+                        <p style="margin: 8px 0 0; font-size: 14px; font-weight: bold; color: #1f2937; word-break: break-all; font-family: monospace;">${resetToken}</p>
+                    </div>
+                    <p style="color: #ef4444; font-size: 13px;">⏰ This token expires in <strong>10 minutes</strong>.</p>
+                    <p style="color: #6b7280; font-size: 13px;">If you didn't request this, you can safely ignore this email. Your password will not change.</p>
+                </div>
+                <div style="background: #f9fafb; padding: 16px; text-align: center; border-top: 1px solid #e5e7eb;">
+                    <p style="color: #9ca3af; font-size: 12px; margin: 0;">© 2025 ChatSphere. Built with ❤️</p>
+                </div>
+            </div>
+        `;
+
+        // Send the email
+        await sendEmail({
+            to: user.email,
+            subject: "ChatSphere — Password Reset Token",
+            html: resetEmailHTML,
+        });
+
         return res.status(200).json({
             success: true,
-            message: "Password reset token generated",
-            resetToken, // Returned for easy testing and placement interview demonstration
+            message: "Password reset token sent to your registered email address. Check your inbox (and spam folder).",
         });
 
     } catch (error) {
+        console.error("❌ Send Email Error Details:", error);
+
+        // Agar email sending fail ho jaye, toh DB se token hata do
+        // Warna token DB me pada rahega lekin email nahi aaya
+        await User.findOneAndUpdate(
+            { email: req.body?.email?.toLowerCase().trim() },
+            { $unset: { resetPasswordToken: 1, resetPasswordExpire: 1 } }
+        );
+
         return res.status(500).json({
             success: false,
-            message: error.message,
+            message: error.message || "Failed to send reset email. Please try again later.",
         });
     }
 };
