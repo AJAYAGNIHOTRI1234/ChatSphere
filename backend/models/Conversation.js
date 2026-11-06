@@ -18,6 +18,12 @@ const conversationSchema = new mongoose.Schema(
         groupName: {
             type: String,
             default: "",
+            trim: true,
+        },
+
+        groupPicture: {
+            type: String,
+            default: "",
         },
 
         groupAdmin: {
@@ -35,6 +41,10 @@ const conversationSchema = new mongoose.Schema(
         timestamps: true,
     }
 );
+
+// Indexes for conversation lookups
+conversationSchema.index({ participants: 1 });
+conversationSchema.index({ isGroup: 1, updatedAt: -1 });
 
 const Conversation = mongoose.model(
     "Conversation",
