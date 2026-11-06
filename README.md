@@ -88,23 +88,23 @@ flowchart TD
     end
 
     subgraph CloudServices["☁️ External Services & Database"]
-        MongoDB[("🍃 MongoDB Atlas Database\n(Users, Messages, Conversations)")]
-        CloudinaryCDN["🖼️ Cloudinary Media Cloud\n(Profile Avatars & Images)"]
-        GmailSMTP["✉️ Gmail SMTP (Nodemailer)\n(Password Reset Emails)"]
+        MongoDB[("🍃 MongoDB Atlas Database")]
+        CloudinaryCDN["🖼️ Cloudinary Media Cloud"]
+        GmailSMTP["✉️ Gmail SMTP (Nodemailer)"]
     end
 
     UI --> AxiosClient
     UI --> SocketClient
 
-    AxiosClient -->|"HTTP Requests + Bearer Token"| AuthMiddleware
+    AxiosClient -->|HTTP Requests + Bearer Token| AuthMiddleware
     AuthMiddleware --> Controllers
 
-    SocketClient <==|"Bidirectional WebSocket (JWT handshake)"|==> SocketHandler
+    SocketClient <-->|Bidirectional WebSocket| SocketHandler
 
-    Controllers -->|"Store / Query Data"| MongoDB
-    Controllers -->|"Upload Photos (Buffer)"| CloudinaryCDN
-    Controllers -->|"Send Reset Token"| GmailSMTP
-    SocketHandler -->|"Sync Read/Online Status"| MongoDB
+    Controllers -->|Store / Query Data| MongoDB
+    Controllers -->|Upload Photos| CloudinaryCDN
+    Controllers -->|Send Reset Token| GmailSMTP
+    SocketHandler -->|Sync Read/Online Status| MongoDB
 ```
 
 ---
