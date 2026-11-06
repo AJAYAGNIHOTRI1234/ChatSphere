@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import API from "../services/api";
-import { FaSearch, FaUserCircle, FaCog } from "react-icons/fa";
+import { FaSearch, FaUserCircle, FaCog, FaUsers, FaPlus } from "react-icons/fa";
 import { useSocket } from "../hooks/useSocket";
 import { useAuth } from "../hooks/useAuth";
 import UserProfile from "./UserProfile";
+import CreateGroupModal from "./CreateGroupModal";
 
 function Sidebar({ onSelectConversation, selectedConversation }) {
 
@@ -15,6 +16,7 @@ function Sidebar({ onSelectConversation, selectedConversation }) {
     const [conversationLoading, setConversationLoading] = useState(false);
     const [error, setError] = useState("");
     const [isProfileOpen, setIsProfileOpen] = useState(false);
+    const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
 
     const { socket, onlineUsers } = useSocket();
     const { user: currentUser } = useAuth();
@@ -90,14 +92,40 @@ function Sidebar({ onSelectConversation, selectedConversation }) {
             }));
         };
 
+        const handleNewGroupCreated = (newGroup) => {
+            setConversations((prev) => {
+                if (prev.some((c) => String(c._id) === String(newGroup._id))) return prev;
+                return [newGroup, ...prev];
+            });
+        };
+
+        const handleGroupUpdated = (updatedGroup) => {
+            setConversations((prev) =>
+                prev.map((c) => (String(c._id) === String(updatedGroup._id) ? updatedGroup : c))
+            );
+        };
+
+        const handleMemberRemoved = ({ groupId }) => {
+            setConversations((prev) => prev.filter((c) => String(c._id) !== String(groupId)));
+            if (String(selectedConversation?._id) === String(groupId)) {
+                onSelectConversation(null);
+            }
+        };
+
         socket.on("new_message", handleNewMessage);
         socket.on("messages_read", handleMessagesRead);
+        socket.on("new_group_created", handleNewGroupCreated);
+        socket.on("group_updated", handleGroupUpdated);
+        socket.on("member_removed_from_group", handleMemberRemoved);
 
         return () => {
             socket.off("new_message", handleNewMessage);
             socket.off("messages_read", handleMessagesRead);
+            socket.off("new_group_created", handleNewGroupCreated);
+            socket.off("group_updated", handleGroupUpdated);
+            socket.off("member_removed_from_group", handleMemberRemoved);
         };
-    }, [socket, selectedConversation?._id, currentUserId]);
+    }, [socket, selectedConversation?._id, currentUserId, onSelectConversation]);
 
     // ====================================
     // SEARCH USERS
@@ -147,6 +175,11 @@ function Sidebar({ onSelectConversation, selectedConversation }) {
         }
     };
 
+    const handleGroupCreated = (newGroup) => {
+        setConversations((prev) => [newGroup, ...prev]);
+        handleSelectConversation(newGroup);
+    };
+
     const openConversation = async (user) => {
         try {
             setConversationLoading(true);
@@ -186,7 +219,7 @@ function Sidebar({ onSelectConversation, selectedConversation }) {
     };
 
     // ====================================
-    // GET OTHER PARTICIPANT
+    // GET OTHER PARTICIPANT (FOR 1-ON-1)
     // ====================================
 
     const getOtherParticipant = (conversation) => {
@@ -212,13 +245,24 @@ function Sidebar({ onSelectConversation, selectedConversation }) {
                         <h2>ChatSphere</h2>
                         <p>Real-time conversations</p>
                     </div>
-                    <button
-                        className="header-settings-btn"
-                        onClick={() => setIsProfileOpen(true)}
-                        title="Profile & Settings"
-                    >
-                        <FaCog />
-                    </button>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <button
+                            className="header-action-btn"
+                            onClick={() => setIsGroupModalOpen(true)}
+                            title="Create New Group"
+                        >
+                            <FaPlus /> Group
+                        </button>
+
+                        <button
+                            className="header-settings-btn"
+                            onClick={() => setIsProfileOpen(true)}
+                            title="Profile & Settings"
+                        >
+                            <FaCog />
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -296,23 +340,72 @@ function Sidebar({ onSelectConversation, selectedConversation }) {
 
             {/* CONVERSATION HEADING */}
             <h3 className="section-title">
-                Messages
+                Messages & Groups
             </h3>
 
             {/* CONVERSATION LIST */}
             <div className="conversation-list">
                 {conversations.length === 0 && (
                     <p className="empty-conversations" style={{ padding: "15px", color: "#888" }}>
-                        No conversations yet. Search someone above to start chatting!
+                        No conversations yet. Search someone above or create a group to start chatting!
                     </p>
                 )}
 
                 {conversations.map((conversation) => {
-                    const otherUser = getOtherParticipant(conversation);
-                    if (!otherUser) return null;
-
                     const convIdStr = String(conversation._id);
                     const unread = unreadCounts[convIdStr] || 0;
+                    const isActive = selectedConversation?._id === conversation._id;
+
+                    // A) GROUP CONVERSATION ITEM
+                    if (conversation.isGroup) {
+                        return (
+                            <div
+                                key={conversation._id}
+                                className={`conversation-item ${isActive ? "active" : ""}`}
+                                onClick={() => handleSelectConversation(conversation)}
+                            >
+                                <div className="group-avatar-icon">
+                                    <FaUsers />
+                                </div>
+
+                                <div className="conversation-info">
+                                    <h4>{conversation.groupName}</h4>
+                                    <p>
+                                        {conversation.lastMessage ? (
+                                            <>
+                                                <strong style={{ color: "#4f46e5" }}>
+                                                    {conversation.lastMessage.sender?.name
+                                                        ? conversation.lastMessage.sender.name.split(" ")[0]
+                                                        : "Someone"}
+                                                    :{" "}
+                                                </strong>
+                                                {conversation.lastMessage.image
+                                                    ? "📷 Photo"
+                                                    : conversation.lastMessage.text}
+                                            </>
+                                        ) : (
+                                            "Group created"
+                                        )}
+                                    </p>
+                                </div>
+
+                                <div className="conversation-meta-box">
+                                    <span className="group-member-pill">
+                                        {conversation.participants?.length || 0}
+                                    </span>
+                                    {unread > 0 && (
+                                        <span className="unread-badge">
+                                            {unread > 99 ? "99+" : unread}
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    }
+
+                    // B) ONE-TO-ONE CONVERSATION ITEM
+                    const otherUser = getOtherParticipant(conversation);
+                    if (!otherUser) return null;
 
                     const isOnline = onlineUsers.some(
                         (id) => String(id) === String(otherUser._id || otherUser.id)
@@ -321,11 +414,7 @@ function Sidebar({ onSelectConversation, selectedConversation }) {
                     return (
                         <div
                             key={conversation._id}
-                            className={`conversation-item ${
-                                selectedConversation?._id === conversation._id
-                                    ? "active"
-                                    : ""
-                            }`}
+                            className={`conversation-item ${isActive ? "active" : ""}`}
                             onClick={() => handleSelectConversation(conversation)}
                         >
                             {otherUser.profilePicture ? (
@@ -379,6 +468,13 @@ function Sidebar({ onSelectConversation, selectedConversation }) {
                 </div>
                 <FaCog className="user-footer-gear" />
             </div>
+
+            {/* CREATE GROUP MODAL */}
+            <CreateGroupModal
+                isOpen={isGroupModalOpen}
+                onClose={() => setIsGroupModalOpen(false)}
+                onGroupCreated={handleGroupCreated}
+            />
 
             {/* USER PROFILE MODAL */}
             <UserProfile
