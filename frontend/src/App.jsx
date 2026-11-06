@@ -12,14 +12,12 @@ import Chat from "./pages/Chat";
 import Sidebar from "./components/Sidebar";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { useAuth } from "./hooks/useAuth";
-import { useSocket } from "./hooks/useSocket";
 
 function ChatDashboard() {
     const [selectedConversation, setSelectedConversation] = useState(null);
-    const { socket } = useSocket();
 
     return (
-        <div className="chat-dashboard">
+        <div className={`chat-dashboard ${selectedConversation ? "chat-open" : "sidebar-open"}`}>
             <Sidebar
                 onSelectConversation={setSelectedConversation}
                 selectedConversation={selectedConversation}
@@ -27,7 +25,9 @@ function ChatDashboard() {
 
             <Chat
                 conversation={selectedConversation}
-                socket={socket}
+                onConversationUpdated={setSelectedConversation}
+                onLeaveGroup={() => setSelectedConversation(null)}
+                onBack={() => setSelectedConversation(null)}
             />
         </div>
     );

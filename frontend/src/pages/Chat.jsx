@@ -6,12 +6,16 @@ import {
     FaCheck,
     FaCheckDouble,
     FaImage,
-    FaTimes
+    FaTimes,
+    FaUsers,
+    FaArrowLeft
 } from "react-icons/fa";
 import { useSocket } from "../hooks/useSocket";
+import GroupInfoModal from "../components/GroupInfoModal";
+import { formatLastSeen } from "../utils/formatDate";
 
-function Chat({ conversation }) {
-    const { socket, onlineUsers } = useSocket();
+function Chat({ conversation, onConversationUpdated, onLeaveGroup, onBack }) {
+    const { socket, onlineUsers, lastSeenMap } = useSocket();
 
     const [messages, setMessages] = useState([]);
     const [newMessage, setNewMessage] = useState("");
@@ -20,6 +24,7 @@ function Chat({ conversation }) {
     const [loading, setLoading] = useState(false);
     const [sending, setSending] = useState(false);
     const [typingUser, setTypingUser] = useState(null);
+    const [isGroupInfoOpen, setIsGroupInfoOpen] = useState(false);
 
     const messagesEndRef = useRef(null);
     const typingTimeoutRef = useRef(null);
@@ -34,20 +39,24 @@ function Chat({ conversation }) {
     );
 
     // ====================================
-    // IDENTIFY OTHER PARTICIPANT
+    // IDENTIFY OTHER PARTICIPANT (FOR 1-ON-1)
     // ====================================
-    const otherUser = conversation?.participants?.find((participant) => {
-        const participantId = String(
-            participant?._id || participant?.id || participant
-        );
-        return participantId !== currentUserId;
-    });
+    const otherUser = conversation?.isGroup
+        ? null
+        : conversation?.participants?.find((participant) => {
+              const participantId = String(
+                  participant?._id || participant?.id || participant
+              );
+              return participantId !== currentUserId;
+          });
 
     const otherUserId = String(otherUser?._id || otherUser?.id || "");
 
     const isOtherUserOnline = onlineUsers.some(
         (id) => String(id) === otherUserId
     );
+
+    const effectiveLastSeen = lastSeenMap?.[otherUserId] || otherUser?.lastSeen;
 
     // ====================================
     // AUTO-SCROLL TO BOTTOM
@@ -255,7 +264,6 @@ function Chat({ conversation }) {
 
             let uploadedImageUrl = "";
 
-            // Upload image first if an attachment is chosen
             if (selectedImage?.file) {
                 const formData = new FormData();
                 formData.append("image", selectedImage.file);
@@ -306,7 +314,7 @@ function Chat({ conversation }) {
         return (
             <div className="chat-empty">
                 <h2>Welcome to ChatSphere!</h2>
-                <p>Select a conversation to start messaging in real-time.</p>
+                <p>Select a conversation or create a group to start messaging.</p>
             </div>
         );
     }
@@ -318,8 +326,33 @@ function Chat({ conversation }) {
         <div className="chat-window">
 
             {/* CHAT HEADER */}
-            <div className="chat-header">
-                {otherUser?.profilePicture ? (
+            <div
+                className={`chat-header ${conversation.isGroup ? "clickable-header" : ""}`}
+                onClick={() => {
+                    if (conversation.isGroup) {
+                        setIsGroupInfoOpen(true);
+                    }
+                }}
+            >
+                {onBack && (
+                    <button
+                        type="button"
+                        className="mobile-back-btn"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onBack();
+                        }}
+                        title="Back to conversations"
+                    >
+                        <FaArrowLeft />
+                    </button>
+                )}
+
+                {conversation.isGroup ? (
+                    <div className="group-avatar-icon header-group-avatar">
+                        <FaUsers />
+                    </div>
+                ) : otherUser?.profilePicture ? (
                     <img
                         src={otherUser.profilePicture}
                         alt={otherUser.name}
@@ -329,19 +362,26 @@ function Chat({ conversation }) {
                     <FaUserCircle className="header-avatar" />
                 )}
 
-                <div>
-                    <h3>{otherUser?.name || "Chat User"}</h3>
-                    <p style={{ color: isOtherUserOnline ? "#16a34a" : "#6b7280" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                    <h3>
+                        {conversation.isGroup
+                            ? conversation.groupName
+                            : otherUser?.name || "Chat User"}
+                    </h3>
+
+                    <p style={{ color: conversation.isGroup ? "#4f46e5" : isOtherUserOnline ? "#16a34a" : "#6b7280" }}>
                         {typingUser
                             ? `${typingUser} is typing...`
+                            : conversation.isGroup
+                            ? `${conversation.participants?.length || 0} participants · Tap for info`
                             : isOtherUserOnline
                             ? "Online"
-                            : "Offline"}
+                            : formatLastSeen(effectiveLastSeen)}
                     </p>
                 </div>
             </div>
 
-            {/* MESSAGES */}
+            {/* MESSAGES CONTAINER */}
             <div className="messages-container">
                 {loading && <p>Loading messages...</p>}
 
@@ -360,13 +400,17 @@ function Chat({ conversation }) {
 
                     const isOwnMessage = senderId === currentUserId;
 
-                    const isRead = (message.readBy || []).some(
-                        (id) => String(id?._id || id) === otherUserId
-                    );
+                    // Receipt calculation
+                    const isRead = conversation.isGroup
+                        ? (message.readBy || []).length > 1
+                        : (message.readBy || []).some(
+                              (id) => String(id?._id || id) === otherUserId
+                          );
 
-                    const isDelivered = isRead || (message.deliveredTo || []).some(
-                        (id) => String(id?._id || id) === otherUserId
-                    ) || isOtherUserOnline;
+                    const isDelivered =
+                        isRead ||
+                        (message.deliveredTo || []).length > 1 ||
+                        isOtherUserOnline;
 
                     return (
                         <div
@@ -374,6 +418,13 @@ function Chat({ conversation }) {
                             className={`message ${isOwnMessage ? "sent" : "received"}`}
                         >
                             <div className="message-bubble">
+                                {/* In Group Chats: Display Sender Name for Received Messages */}
+                                {conversation.isGroup && !isOwnMessage && (
+                                    <span className="message-sender-name">
+                                        {message.sender?.name || "Member"}
+                                    </span>
+                                )}
+
                                 {/* Attached Image */}
                                 {message.image && (
                                     <div className="message-image-wrapper">
@@ -495,6 +546,21 @@ function Chat({ conversation }) {
                         <img src={viewingImage} alt="Expanded media" />
                     </div>
                 </div>
+            )}
+
+            {/* GROUP INFO MODAL */}
+            {conversation.isGroup && (
+                <GroupInfoModal
+                    isOpen={isGroupInfoOpen}
+                    onClose={() => setIsGroupInfoOpen(false)}
+                    conversation={conversation}
+                    onGroupUpdated={(updated) => {
+                        if (onConversationUpdated) onConversationUpdated(updated);
+                    }}
+                    onLeaveGroup={(groupId) => {
+                        if (onLeaveGroup) onLeaveGroup(groupId);
+                    }}
+                />
             )}
 
         </div>
